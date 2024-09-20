@@ -66,8 +66,8 @@ const server = http.createServer((req, res) => {
   res.end('TikTok Live Connector is running\n');
 });
 
-// Listen on port 3000
-server.listen(3000, () => {
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
   console.log('Server running at http://localhost:3000/');
   let sharedLiveStartTime = null;
   let sharedRoomId = null;
@@ -158,7 +158,7 @@ server.listen(3000, () => {
                   .catch(err => {
                     console.error('Failed to save new LiveConnect entry:', err);
                   });
-                }, 1000); // Chờ 2 giây trước khi thêm vào Firebase
+                }, 1000); // Chờ 2 giây trước khi thêm vào Firebasep
               }
           });
         }
