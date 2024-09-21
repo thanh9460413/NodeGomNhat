@@ -1,7 +1,7 @@
 const { WebcastPushConnection } = require('tiktok-live-connector');
 const http = require('http');
 const firebase = require('firebase');
-const moment = require('moment');
+const moment = require('moment-timezone');
 
 // TikTok accounts to monitor
 const usernames = ['ngancuong1983', 'cuongrau04092011']; // Add more usernames if needed
