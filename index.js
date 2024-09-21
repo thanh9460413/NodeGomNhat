@@ -53,10 +53,10 @@ function normalizePhoneNumber(comment) {
 
 // Format timestamp
 function formatTimestamp(timestamp) {
-  return moment(timestamp).format('YYYY-MM-DD HH:mm:ss');
+  return moment(timestamp).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
 }
 function formatTime(timestamp) {
-  return moment(timestamp).format('YYYY-MM-DD HH:mm');
+  return moment(timestamp).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm');
 }
 
 // Create HTTP server
