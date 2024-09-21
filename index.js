@@ -124,7 +124,7 @@ server.listen(PORT, () => {
               return;  // Dừng lại không thực hiện khối else nữa
             } else {
               // Nếu không tìm thấy roomId trùng, tạo thời gian mới từ state.create_time
-              liveStartTime = formatTime(state.create_time);
+              liveStartTime = formatTime(Date.now());
             
               // Lưu giá trị cho lần sau
               sharedLiveStartTime = liveStartTime;
