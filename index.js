@@ -2,7 +2,7 @@ const { WebcastPushConnection } = require('tiktok-live-connector');
 const http = require('http');
 const firebase = require('firebase');
 const moment = require('moment-timezone');
-
+const axios = require('axios');
 // TikTok accounts to monitor
 const usernames = ['ngancuong1983', 'cuongrau04092011']; // Add more usernames if needed
 
@@ -262,9 +262,34 @@ server.listen(PORT, () => {
             }).catch(err => {
               console.error('Failed to update TimeStart or TimeEnd to Firebase:', err);
             });
+      
+            // Gửi yêu cầu PATCH để tắt dyno Heroku
+            axios.patch('https://api.heroku.com/apps/gomnhatyenvan/formation', 
+              {
+                updates: [
+                  {
+                    quantity: 0,
+                    type: 'web'
+                  }
+                ]
+              }, 
+              {
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/vnd.heroku+json; version=3',
+                  'Authorization': 'Bearer HRKU-9af2dadf-3bf6-4cab-ab80-e942a5991320'
+                }
+              })
+              .then(response => {
+                console.log('Heroku app scaled down successfully:', response.data);
+              })
+              .catch(error => {
+                console.error('Failed to scale down Heroku app:', error);
+              });
           }
         }
       });
+      
 
       tiktokConnection.on('disconnected', reason => {
         console.log('Disconnected:', reason);
