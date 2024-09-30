@@ -111,6 +111,7 @@ server.listen(PORT, () => {
           console.log(`Room ID ${roomId} has no viewers. Skipping Firebase save.`);
         }
       });
+      
       tiktokConnection.on('chat', data => {
         const comment = data.comment;
         const phoneNumber = normalizePhoneNumber(comment);
@@ -187,7 +188,6 @@ server.listen(PORT, () => {
           if (roomId) {
             const liveEndTime = formatTime(Date.now());
             database.ref(`Tiktok/${username}/${roomId}`).update({
-              TimeStart: liveStartTime,
               TimeEnd: liveEndTime,
             }).catch(err => {
               console.error('Failed to update TimeStart or TimeEnd to Firebase:', err);
