@@ -83,104 +83,34 @@ server.listen(PORT, () => {
       tiktokConnection = new WebcastPushConnection(username);
 
       tiktokConnection.connect().then(state => {
-        console.log(`Connected to ${state.roomId}'s live`);
         roomId = state.roomId;
-
-
-        const liveConnectRef = database.ref(`LiveConnect`);
-
-        // Nếu sharedLiveStartTime đã có giá trị (tức là ngancuong đã check xong), thì sử dụng giá trị đó
-        if (sharedLiveStartTime && sharedRoomId === roomId) {
-          liveStartTime = sharedLiveStartTime;
-          console.log(`Using shared liveStartTime: ${liveStartTime} for ${username}`);
-        } else {
-          // Nếu chưa có sharedLiveStartTime, thực hiện kiểm tra
-          liveConnectRef.once('value', snapshot => {
-            const liveConnectData = snapshot.val() || {};
-            let foundMatchingTimeKey = null;
-
-            // Kiểm tra từng mục thời gian của LiveConnect
-            Object.keys(liveConnectData).forEach(timeKey => {
-              const timeEntry = liveConnectData[timeKey];
-
-              // Kiểm tra nếu tài khoản và roomId đã tồn tại
-              Object.keys(timeEntry).forEach(account => {
-                if (timeEntry[account] === roomId) {
-                  foundMatchingTimeKey = timeKey;
-                }
-              });
-            });
-
-            if (foundMatchingTimeKey) {
-              // Nếu tìm thấy roomId trùng, set liveStartTime thành key của entry đó
-              liveStartTime = foundMatchingTimeKey;
-              console.log(`Found matching roomId for ${username} at ${foundMatchingTimeKey}.`);
-            
-              // Lưu lại giá trị cho lần sau
-              sharedLiveStartTime = liveStartTime;
-              sharedRoomId = roomId;
-              
-              // Thoát khỏi hàm hoặc dừng logic
-              return;  // Dừng lại không thực hiện khối else nữa
-            } else {
-              // Nếu không tìm thấy roomId trùng, tạo thời gian mới từ state.create_time
-              liveStartTime = formatTime(Date.now());
-            
-              // Lưu giá trị cho lần sau
-              sharedLiveStartTime = liveStartTime;
-              sharedRoomId = roomId;
-            }
-
-            // Sau khi kiểm tra xong, chờ 2 giây rồi thêm hoặc cập nhật vào Firebase
-
-              if (foundMatchingTimeKey) {
-                // Nếu đã tìm thấy roomId trùng, chỉ cập nhật thêm tài khoản mới
-                const updateData = {};
-                updateData[username] = roomId;
-
-                database.ref(`LiveConnect/${foundMatchingTimeKey}`).update(updateData)
-                  .then(() => {
-                    console.log(`Updated ${username} in existing entry at ${foundMatchingTimeKey}.`);
-                  })
-                  .catch(err => {
-                    console.error('Failed to update existing LiveConnect entry:', err);
-                  });
-              } else {
-                // Nếu không tìm thấy, tạo entry mới với liveStartTime
-                setTimeout(() => {
-                const newEntryData = {};
-                newEntryData[username] = roomId;
-
-                liveConnectRef.child(sharedLiveStartTime).update(newEntryData)
-                  .then(() => {
-                    console.log(`Saved new roomId for ${username} at ${liveStartTime} to Firebase.`);
-                  })
-                  .catch(err => {
-                    console.error('Failed to save new LiveConnect entry:', err);
-                  });
-                }, 1000); // Chờ 2 giây trước khi thêm vào Firebasep
-              }
-          });
-        }
-
-        const roomRef = database.ref(`Tiktok/${username}/${roomId}`);
-        roomRef.once('value', snapshot => {
-          if (snapshot.exists()) {
-            console.log(`Room ID ${roomId} already exists. Skipping setting TimeStart.`);
-          } else {
-            roomRef.set({
-              TimeStart: liveStartTime
-            }).then(() => {
-              console.log(`Room ID and TimeStart saved to Firebase for room: ${roomId}`);
-            }).catch(err => {
-              console.error('Failed to save roomId and TimeStart to Firebase:', err);
-            });
-          }
-        });
+      
       }).catch(err => {
         console.error('Failed to connect:', err);
       });
-
+      tiktokConnection.on('roomUser', data => {
+        if (data.viewerCount > 0) {
+          console.log(`Room ID ${roomId} is live with viewers: ${data.viewerCount}`);
+          
+          const roomRef = database.ref(`Tiktok/${username}/${roomId}`);
+          roomRef.once('value', snapshot => {
+            if (snapshot.exists()) {
+              console.log(`Room ID ${roomId} already exists. Skipping setting TimeStart.`);
+            } else {
+              liveStartTime = formatTime(Date.now());  // Thêm thời gian bắt đầu
+              roomRef.set({
+                TimeStart: liveStartTime
+              }).then(() => {
+                console.log(`Room ID and TimeStart saved to Firebase for room: ${roomId}`);
+              }).catch(err => {
+                console.error('Failed to save roomId and TimeStart to Firebase:', err);
+              });
+            }
+          });
+        } else {
+          console.log(`Room ID ${roomId} has no viewers. Skipping Firebase save.`);
+        }
+      });
       tiktokConnection.on('chat', data => {
         const comment = data.comment;
         const phoneNumber = normalizePhoneNumber(comment);
