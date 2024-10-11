@@ -4,7 +4,7 @@ const firebase = require('firebase');
 const moment = require('moment-timezone');
 const axios = require('axios');
 // TikTok accounts to monitor
-const usernames = ['ngancuong1983', 'cuongrau04092011']; // Add more usernames if needed
+const usernames = ['ngancuong1983', 'vandiy223']; // Add more usernames if needed
 
 const firebaseConfig = {
   apiKey: "AIzaSyDXXOikQd3P1qxodkApktjN-GznKHxMqbs",
