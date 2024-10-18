@@ -3,9 +3,11 @@ const http = require('http');
 const firebase = require('firebase');
 const moment = require('moment-timezone');
 const axios = require('axios');
+
 // TikTok accounts to monitor
 const usernames = ['ngancuong1983', 'vandiy223']; // Add more usernames if needed
 
+// Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDXXOikQd3P1qxodkApktjN-GznKHxMqbs",
   authDomain: "gomsuyenvan.firebaseapp.com",
@@ -51,7 +53,7 @@ function normalizePhoneNumber(comment) {
   return match ? match[1] : null;
 }
 
-// Format timestamp
+// Hàm định dạng thời gian
 function formatTimestamp(timestamp) {
   return moment(timestamp).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
 }
@@ -66,134 +68,126 @@ const server = http.createServer((req, res) => {
   res.end('TikTok Live Connector is running\n');
 });
 
+// Port để chạy server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log('Server running at http://localhost:3000/');
-  let sharedLiveStartTime = null;
-  let sharedRoomId = null;
+  console.log(`Server running at http://localhost:${PORT}/`);
+
   usernames.forEach(username => {
     let tiktokConnection = null;
-    let liveStartTime = "";
     let roomId = "";
-    let hasComments = false;
     let lastCommentTime = null; // Lưu thời gian bình luận cuối cùng
-    
+
     // Hàm để kết nối lại nếu bị ngắt kết nối
     const connectToTikTok = () => {
       tiktokConnection = new WebcastPushConnection(username);
 
       tiktokConnection.connect().then(state => {
         roomId = state.roomId;
-      
-      }).catch(err => {
-        console.error('Failed to connect:', err);
-      });
-      tiktokConnection.on('roomUser', data => {
-        if (data.viewerCount > 0) {
-          console.log(`Room ID ${roomId} is live with viewers: ${data.viewerCount}`);
-          
-          const roomRef = database.ref(`Tiktok/${username}/${roomId}`);
-          roomRef.once('value', snapshot => {
-            if (snapshot.exists()) {
-              console.log(`Room ID ${roomId} already exists. Skipping setting TimeStart.`);
-            } else {
-              liveStartTime = formatTime(Date.now());  // Thêm thời gian bắt đầu
-              roomRef.set({
-                TimeStart: liveStartTime
-              }).then(() => {
-                console.log(`Room ID and TimeStart saved to Firebase for room: ${roomId}`);
-              }).catch(err => {
-                console.error('Failed to save roomId and TimeStart to Firebase:', err);
-              });
-            }
-          });
-        } else {
-          console.log(`Room ID ${roomId} has no viewers. Skipping Firebase save.`);
-        }
-      });
-      
-      tiktokConnection.on('chat', data => {
-        const comment = data.comment;
-        const phoneNumber = normalizePhoneNumber(comment);
-        hasComments = true;
 
-        const currentTimestamp = Date.now();
-        
-        // Chỉ lưu bình luận mới nếu bình luận đến sau thời điểm ngắt kết nối
-        if (!lastCommentTime || currentTimestamp > lastCommentTime) {
-          if (roomId) {
-            database.ref(`Tiktok/${username}/${roomId}/Comments`).push({
-              nickname: data.nickname,
-              uniqueId: data.uniqueId,
-              comment: comment,
-              image: data.profilePictureUrl,
-              timestamp: formatTimestamp(currentTimestamp)
-            }).catch(err => {
-              console.error('Failed to push comment to Firebase:', err);
+        // Check room user (if live)
+        tiktokConnection.on('roomUser', data => {
+          if (data.viewerCount > 0) {
+            const roomRef = database.ref(`Tiktok/${username}/${roomId}`);
+            roomRef.once('value', snapshot => {
+              if (!snapshot.exists()) {
+                const liveStartTime = formatTime(Date.now());
+                roomRef.set({
+                  TimeStart: liveStartTime
+                }).then(() => {
+                  console.log(`Room ID and TimeStart saved to Firebase for room: ${roomId}`);
+                }).catch(err => {
+                  console.error('Failed to save roomId and TimeStart to Firebase:', err);
+                });
+              }
             });
           } else {
-            console.error('Room ID not set before saving comment.');
+            console.log(`Room ID ${roomId} has no viewers.`);
           }
-        }
+        });
 
-        if (phoneNumber) {
-          console.log(`Phone number detected: ${phoneNumber}`);
+        // Listen for chat (comments)
+        tiktokConnection.on('chat', data => {
+          const comment = data.comment;
+          const phoneNumber = normalizePhoneNumber(comment);
 
-          database.ref(`KhachHang`).orderByChild('SDTKhachHang').equalTo(phoneNumber).once('value', snapshot => {
-            if (snapshot.exists()) {
-              const customerKey = Object.keys(snapshot.val())[0];
-              const existingCustomer = snapshot.val()[customerKey];
+          const currentTimestamp = Date.now();
+          
+          // Chỉ lưu bình luận mới nếu bình luận đến sau thời điểm ngắt kết nối
+          if (!lastCommentTime || currentTimestamp > lastCommentTime) {
+            if (roomId) {
+              database.ref(`Tiktok/${username}/${roomId}/Comments`).push({
+                nickname: data.nickname,
+                uniqueId: data.uniqueId,
+                comment: comment,
+                image: data.profilePictureUrl,
+                timestamp: formatTimestamp(currentTimestamp)
+              }).catch(err => {
+                console.error('Failed to push comment to Firebase:', err);
+              });
+            } else {
+              console.error('Room ID not set before saving comment.');
+            }
+          }
 
-              if (existingCustomer.TenKhachHang !== data.nickname) {
-                database.ref(`KhachHang/${customerKey}`).update({
+          if (phoneNumber) {
+            console.log(`Phone number detected: ${phoneNumber}`);
+
+            database.ref(`KhachHang`).orderByChild('SDTKhachHang').equalTo(phoneNumber).once('value', snapshot => {
+              if (snapshot.exists()) {
+                const customerKey = Object.keys(snapshot.val())[0];
+                const existingCustomer = snapshot.val()[customerKey];
+
+                if (existingCustomer.TenKhachHang !== data.nickname) {
+                  database.ref(`KhachHang/${customerKey}`).update({
+                    TenKhachHang: data.nickname,
+                    UniqueId: data.uniqueId,
+                    Image: data.profilePictureUrl,
+                  }).then(() => {
+                    console.log('Updated customer name:', data.nickname);
+                  }).catch(err => {
+                    console.error('Failed to update customer name:', err);
+                  });
+                }
+              } else {
+                const customerData = {
+                  SDTKhachHang: phoneNumber,
                   TenKhachHang: data.nickname,
                   UniqueId: data.uniqueId,
                   Image: data.profilePictureUrl,
-                }).then(() => {
-                  console.log('Updated customer name:', data.nickname);
+                  MangXaHoi: "Tiktok",
+                  DiaChi: '',
+                  Phuong_Xa: '',
+                  Quan_Huyen: '',
+                  Tinh_ThanhPho: ''
+                };
+
+                database.ref(`KhachHang`).push(customerData).then(() => {
+                  console.log('Customer data added to Firebase:', customerData);
                 }).catch(err => {
-                  console.error('Failed to update customer name:', err);
+                  console.error('Failed to add customer to Firebase:', err);
                 });
               }
-            } else {
-              const customerData = {
-                SDTKhachHang: phoneNumber,
-                TenKhachHang: data.nickname,
-                UniqueId: data.uniqueId,
-                Image: data.profilePictureUrl,
-                MangXaHoi: "Tiktok",
-                DiaChi: '',
-                Phuong_Xa: '',
-                Quan_Huyen: '',
-                Tinh_ThanhPho: ''
-              };
+            });
+          } else {
+            console.log(`No phone number found in comment: ${data.nickname} - ${comment}`);
+          }
 
-              database.ref(`KhachHang`).push(customerData).then(() => {
-                console.log('Customer data added to Firebase:', customerData);
-              }).catch(err => {
-                console.error('Failed to add customer to Firebase:', err);
-              });
-            }
-          });
-        } else {
-          console.log(`No phone number found in comment: ${data.nickname} - ${comment}`);
-        }
+          lastCommentTime = currentTimestamp;
+        });
 
-        lastCommentTime = currentTimestamp; // Cập nhật thời gian bình luận cuối cùng
-      });
-
-      tiktokConnection.on('streamEnd', actionId => {
-        console.log(`Stream end event received with actionId: ${actionId}`);
-        if (hasComments) {
+        // Handle stream end event
+        tiktokConnection.on('streamEnd', actionId => {
+          console.log(`Stream end event received with actionId: ${actionId}`);
           if (roomId) {
             const liveEndTime = formatTime(Date.now());
             database.ref(`Tiktok/${username}/${roomId}`).update({
               TimeEnd: liveEndTime,
             }).catch(err => {
-              console.error('Failed to update TimeStart or TimeEnd to Firebase:', err);
+              console.error('Failed to update TimeEnd to Firebase:', err);
             });
-      
-            // Gửi yêu cầu PATCH để tắt dyno Heroku
+
+            // Scale down Heroku dyno
             axios.patch('https://api.heroku.com/apps/gomnhatyenvan/formation', 
               {
                 updates: [
@@ -217,211 +211,19 @@ server.listen(PORT, () => {
                 console.error('Failed to scale down Heroku app:', error);
               });
           }
-        }
-      });
-      
+        });
 
-      tiktokConnection.on('disconnected', reason => {
-        console.log('Disconnected:', reason);
-        // Retry connection after 1.5 seconds
-        setTimeout(connectToTikTok, 1500);
+        // Handle disconnection and reconnect
+        tiktokConnection.on('disconnected', reason => {
+          console.log('Disconnected:', reason);
+          setTimeout(connectToTikTok, 1500);
+        });
+      }).catch(err => {
+        console.error('Failed to connect:', err);
       });
     };
 
-    // Bắt đầu kết nối tới TikTok
+    // Start TikTok connection
     connectToTikTok();
   });
 });
-
-
-
-// tiktokConnection.connect().then(state => {
-//   console.info(`Connected to ${username}'s live`);
-
-//   const liveStartTime = formatTimestamp(state.create_time);
-
-//   let hasComments = false;
-//   tiktokConnection.on('chat', data => {
-//     const comment = data.comment;
-//     const phoneNumber = normalizePhoneNumber(comment);
-
-//     hasComments = true;
-
-//     // Save comment under username in Firebase
-//     database.ref(`Tiktok/${username}/${state.roomId}/Comments`).push({
-//       nickname: data.nickname,
-//       uniqueId: data.uniqueId,
-//       comment: comment,
-//       timestamp: formatTimestamp(Date.now())
-//     }).catch(err => {
-//       console.error('Failed to push comment to Firebase:', err);
-//     });
-
-//     if (phoneNumber) {
-//       console.log(`Phone number detected: ${phoneNumber}`);
-
-//       // Check if phone number exists in Firebase
-//       database.ref(`KhachHang`).orderByChild('SDTKhachHang').equalTo(phoneNumber).once('value', snapshot => {
-//         if (snapshot.exists()) {
-//           const customerKey = Object.keys(snapshot.val())[0];
-//           const existingCustomer = snapshot.val()[customerKey];
-
-//           if (existingCustomer.TenKhachHang !== data.nickname) {
-//             database.ref(`KhachHang/${customerKey}`).update({
-//               TenKhachHang: data.nickname,
-//               UniqueId: data.uniqueId,
-//               Image: data.profilePictureUrl,
-//             }).then(() => {
-//               console.log('Updated customer name:', data.nickname);
-//             }).catch(err => {
-//               console.error('Failed to update customer name:', err);
-//             });
-//           }
-//         } else {
-//           const customerData = {
-//             SDTKhachHang: phoneNumber,
-//             TenKhachHang: data.nickname,
-//             UniqueId: data.uniqueId,
-//             Image: data.profilePictureUrl,
-//             MangXaHoi: "Tiktok",
-//             DiaChi: '',
-//             Phuong_Xa: '',
-//             Quan_Huyen: '',
-//             Tinh_ThanhPho: ''
-//           };
-
-//           database.ref(`KhachHang`).push(customerData).then(() => {
-//             console.log('Customer data added to Firebase:', customerData);
-//           }).catch(err => {
-//             console.error('Failed to add customer to Firebase:', err);
-//           });
-//         }
-//       });
-//     } else {
-//       console.log(`No phone number found in comment: ${data.nickname} - ${comment}`);
-//     }
-//   });
-//   // Handle stream end event
-//   tiktokConnection.on('streamEnd', actionId => {
-//     console.log(`Stream end event received with actionId: ${actionId}`);
-
-//     if (actionId === 3) {
-//       console.log(`${username} stream ended by user`);
-//       if (hasComments) {
-//         const liveEndTime = formatTimestamp(Date.now());
-//         database.ref(`Tiktok/${username}/${state.roomId}`).update({
-//           TimeStart: liveStartTime,
-//           TimeEnd: liveEndTime,
-//         }).catch(err => {
-//           console.error('Failed to update TimeStart or TimeEnd to Firebase:', err);
-//         });
-//       }
-//     } else if (actionId === 4) {
-//       console.log(`${username} stream ended by platform moderator (ban)`);
-//     } else {
-//       console.log(`Stream ended with unknown actionId: ${actionId}`);
-//     }
-//   });
-
-// }).catch(err => {
-//   console.error(`Failed to connect to ${username}`, err);
-// });
-
-
-// const { WebcastPushConnection } = require('tiktok-live-connector');
-// const http = require('http');
-// const cron = require('node-cron');
-// const firebase = require('firebase');
-// const moment = require('moment');
-// // Cấu hình Firebase từ Firebase Console
-// const firebaseConfig = {
-//   apiKey: "AIzaSyDXXOikQd3P1qxodkApktjN-GznKHxMqbs",
-//   authDomain: "gomsuyenvan.firebaseapp.com",
-//   databaseURL: "https://gomsuyenvan-default-rtdb.firebaseio.com",
-//   projectId: "gomsuyenvan",
-//   storageBucket: "gomsuyenvan.appspot.com",
-//   messagingSenderId: "265332355511",
-//   appId: "1:265332355511:web:770a66afd2a81101afb832",
-//   measurementId: "G-6V4Y3X0WYT"
-// };
-
-// // Khởi tạo Firebase
-// firebase.initializeApp(firebaseConfig);
-
-// // Tham chiếu tới Realtime Database
-// const database = firebase.database();
-
-// // TikTok username cần theo dõi live stream
-// const username = 'ngancuong1983';
-
-// // Tạo một kết nối mới với TikTok Live
-// const tiktokConnection = new WebcastPushConnection(username);
-
-// // Tạo một HTTP server đơn giản
-// const server = http.createServer((req, res) => {
-//   res.statusCode = 200;
-//   res.setHeader('Content-Type', 'text/plain');
-//   res.end('TikTok Live Connector is running\n');
-// });
-// function formatTimestamp(timestamp) {
-//   return moment(timestamp).format('YYYY-MM-DD HH:mm:ss');
-// }
-// // Server lắng nghe trên cổng 3000
-// server.listen(3000, () => {
-//   console.log('Server đang chạy tại http://localhost:3000/');
-
-//   // Đặt lịch cron job kiểm tra mỗi 1 phút
-//   cron.schedule('*/1 * * * *', () => {
-//     console.log('Checking if the user is live...');
-
-//     // Kết nối với live stream TikTok
-//     tiktokConnection.connect().then(state => {
-//       console.info(`Connected to ${state.roomId}'s live`);
-
-//       // Lưu thời gian bắt đầu live (khi kết nối thành công)
-//       const liveStartTime = Date.now();
-
-//       // Lắng nghe tin nhắn từ live stream TikTok
-//       let hasComments = false;
-//       tiktokConnection.on('chat', data => {
-//         console.log(`User nickname: ${data.nickname}, UserId: ${data.userId}, Commented: ${data.comment}`);
-//         hasComments = true;
-
-//         // Lưu thông tin bình luận vào Firebase
-//         database.ref(`Tiktok/${state.roomId}/Comments`).push({
-//           nickname: data.nickname,
-//           userId: data.userId,
-//           comment: data.comment,
-//           timestamp: formatTimestamp(Date.now())
-//         }).catch(err => {
-//           console.error('Failed to push comment to Firebase:', err);
-//         });
-//       });
-
-//       // Lắng nghe sự kiện kết thúc live
-//       tiktokConnection.on('disconnect', () => {
-//         console.log('Live stream has ended.');
-
-//         if (hasComments) {
-//           // Cập nhật thời gian bắt đầu và kết thúc live vào Firebase nếu có bình luận
-//           const liveEndTime = Date.now();
-//           database.ref(`Tiktok/${state.roomId}`).update({
-//             TimeStart: formatTimestamp(liveStartTime),
-//             TimeEnd: formatTimestamp(liveEndTime)
-//           }).catch(err => {
-//             console.error('Failed to update TimeStart or TimeEnd to Firebase:', err);
-//           });
-//         } else {
-//           // Nếu không có bình luận, xóa dữ liệu phòng khỏi Firebase
-//           database.ref(`Tiktok/${state.roomId}`).remove().catch(err => {
-//             console.error('Failed to remove roomId from Firebase:', err);
-//           });
-//         }
-//       });
-
-//     }).catch(err => {
-//       console.error('Failed to connect', err);
-//     });
-//   });
-// });
-
